@@ -1,0 +1,6 @@
+{
+  "name": "Táo New - iPhone & Phụ Kiện Chính Hãng",
+  "description": "Website trưng bày sản phẩm iPhone chính hãng, chính sách bảo hành toàn diện, công cụ đặt hàng đồng bộ Google Sheet và trang quản trị sản phẩm dành cho Táo New.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
