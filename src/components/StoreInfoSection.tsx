@@ -59,7 +59,7 @@ export const StoreInfoSection: React.FC<StoreInfoSectionProps> = ({ settings }) 
                 {settings.address}
               </p>
               <p className="text-xs text-neutral-400">
-                (Khu đô thị Sun Casa Vĩnh Tân – Đường rộng rãi, an ninh và thuận tiện di chuyển)
+                (Khu đô thị Sun Casa Vĩnh Tân – Vị trí trung tâm, thuận tiện ghé trải nghiệm)
               </p>
             </div>
 
@@ -181,12 +181,12 @@ export const StoreInfoSection: React.FC<StoreInfoSectionProps> = ({ settings }) 
                 </div>
 
                 {/* Convenience Perks */}
-                <div className="p-3.5 rounded-xl bg-neutral-950/60 border border-neutral-800 space-y-1">
+                <div className="p-3.5 rounded-xl bg-neutral-950/60 border border-neutral-800 space-y-1 text-xs">
                   <span className="font-bold text-white flex items-center gap-1.5">
-                    🔬 Test Máy Tại Chỗ &amp; Tư Vấn Kỹ Thuật
+                    🔬 Test Máy Tại Chỗ &amp; Cắm 3uTools Trực Tiếp
                   </span>
                   <p className="text-neutral-400 text-[11px]">
-                    Hỗ trợ kết nối máy tính 3uTools kiểm tra main &amp; linh kiện zin công khai 100% trước khi quý khách quyết định.
+                    Hỗ trợ kết nối máy tính kiểm tra main, màn hình &amp; linh kiện zin công khai 100% trước khi nhận.
                   </p>
                 </div>
 
