@@ -62,7 +62,9 @@ export default function App() {
   // Initialize and auto-sync from Google Sheet if configured
   useEffect(() => {
     const syncUrl = settings.googleSheetProductUrl || settings.googleSheetWebhookUrl;
-    if (syncUrl && settings.autoSyncGoogleSheet !== false) {
+    if (!syncUrl || settings.autoSyncGoogleSheet === false) return;
+
+    const performSync = () => {
       fetchProductsFromGoogleSheet(syncUrl).then((res) => {
         if (res.success && res.products && res.products.length > 0) {
           setProducts(res.products);
@@ -71,7 +73,23 @@ export default function App() {
       }).catch((err) => {
         console.warn('Auto-sync from Google Sheet failed, using local data:', err);
       });
-    }
+    };
+
+    performSync();
+
+    // Tự động làm mới khi người dùng mở lại tab hoặc quay lại màn hình trên điện thoại
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        performSync();
+      }
+    };
+    window.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', performSync);
+
+    return () => {
+      window.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', performSync);
+    };
   }, [settings.googleSheetProductUrl, settings.googleSheetWebhookUrl, settings.autoSyncGoogleSheet]);
 
   // Filtered Products Memo
@@ -220,6 +238,7 @@ export default function App() {
             setQuickOrderProduct(null);
             setIsQuickOrderOpen(true);
           }}
+          onOpenAdmin={() => setIsAdminOpen(true)}
         />
 
         {/* ================= VIEW 1: TRANG CHỦ & THÔNG TIN CỬA HÀNG ================= */}

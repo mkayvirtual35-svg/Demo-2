@@ -98,15 +98,16 @@ export function parseProductsFromCSVText(csvText: string): {
 
     const colName = findColIndex(['ten', 'name', 'model', 'san pham'], 0);
     const colSeries = findColIndex(['series', 'dong', 'the he'], 1);
-    const colAvailability = findColIndex(['tinh trang', 'trang thai', 'availability', 'stock', 'kho'], 2);
-    const colImei = findColIndex(['imei', 'serial', 'ma'], 3);
-    const colPrice = findColIndex(['gia ban', 'gia thuc te', 'price', 'gia'], 4);
-    const colOrigPrice = findColIndex(['gia goc', 'gia niem yet', 'original', 'cu'], 5);
-    const colStorage = findColIndex(['dung luong', 'storage', 'bo nho', 'gb', 'rom'], 6);
-    const colCondition = findColIndex(['hinh thuc', 'ngoai hinh', 'condition', 'may'], 7);
-    const colColor = findColIndex(['mau', 'color'], 8);
-    const colImage = findColIndex(['anh', 'hinh', 'image', 'drive', 'photo', 'link'], 9);
-    const colDesc = findColIndex(['mo ta', 'ghi chu', 'desc', 'note'], 10);
+    const colPrice = findColIndex(['gia ban', 'gia thuc te', 'price', 'gia'], 2);
+    const colOrigPrice = findColIndex(['gia goc', 'gia niem yet', 'original', 'cu'], 3);
+    const colCondition = findColIndex(['tinh trang', 'hinh thuc', 'ngoai hinh', 'condition', 'may'], 4);
+    const colBattery = findColIndex(['pin', 'battery', 'dung luong pin'], 5);
+    const colColor = findColIndex(['mau', 'color'], 6);
+    const colStorage = findColIndex(['dung luong', 'storage', 'bo nho', 'gb', 'rom'], 7);
+    const colImage = findColIndex(['anh', 'hinh', 'image', 'drive', 'photo', 'link'], 8);
+    const colAvailability = findColIndex(['trang thai', 'availability', 'stock', 'kho', 'hang'], 9);
+    const colImei = findColIndex(['imei', 'serial', 'ma'], -1);
+    const colDesc = findColIndex(['mo ta', 'ghi chu', 'desc', 'note'], -1);
 
     const parsedProducts: Product[] = [];
 
@@ -184,6 +185,9 @@ export function parseProductsFromCSVText(csvText: string): {
       else if (availability === 'order_99') tag = 'ORDER 99% LƯỚT';
       else if (availability === 'order_new_seal') tag = 'ORDER NEW SEAL';
 
+      const rawBattery = colBattery !== -1 && row[colBattery] ? row[colBattery].trim() : '';
+      const batteryHealth = rawBattery || (isOrder ? 'Pin 100%' : 'Pin 95% - 100%');
+
       parsedProducts.push({
         id: 'prod-sync-' + Date.now() + '-' + i,
         name: rawName,
@@ -196,7 +200,7 @@ export function parseProductsFromCSVText(csvText: string): {
         originalPrice,
         storageOptions: storageOptions.length > 0 ? storageOptions : ['128GB', '256GB'],
         condition,
-        batteryHealth: isOrder ? 'Pin 100%' : 'Pin 95% - 100%',
+        batteryHealth,
         colors: colors.length > 0 ? colors : [{ name: 'Titan Tự Nhiên', hex: '#9E988E' }],
         image,
         tag,
@@ -285,11 +289,11 @@ export async function fetchProductsFromGoogleSheet(sheetUrl: string): Promise<{
         const sheetId = match[1];
         const gidMatch = csvUrl.match(/gid=([0-9]+)/);
         const gid = gidMatch ? gidMatch[1] : '0';
-        csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`;
+        csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}&_t=${Date.now()}`;
       }
     }
 
-    const response = await fetch(csvUrl);
+    const response = await fetch(csvUrl, { cache: 'no-store' });
     if (!response.ok) {
       throw new Error(`Không thể kết nối đến Google Sheet (Mã lỗi: ${response.status}). Vui lòng kiểm tra quyền chia sẻ của trang tính.`);
     }
@@ -322,7 +326,17 @@ export async function syncProductActionToGoogleSheet(
 
   try {
     const payload = {
-      action: action === 'add' ? 'add_product' : (action === 'update' ? 'update_product' : 'delete_product'),
+      action: action === 'add' ? 'addProduct' : (action === 'update' ? 'update_product' : 'delete_product'),
+      name: product.name,
+      series: product.series,
+      price: product.price,
+      originalPrice: product.originalPrice,
+      condition: product.condition,
+      batteryHealth: product.batteryHealth,
+      colors: product.colors,
+      storageOptions: product.storageOptions,
+      image: product.image,
+      isAvailable: product.availability ? !product.availability.includes('order') : true,
       product,
       timestamp: new Date().toISOString()
     };

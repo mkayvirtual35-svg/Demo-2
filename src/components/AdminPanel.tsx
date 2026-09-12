@@ -236,12 +236,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       colors: [finalColor]
     };
 
+    const webhookUrl = tempSettings.googleSheetWebhookUrl || settings.googleSheetWebhookUrl;
+
     if (currentProduct.id) {
       // Update existing
       const updated = products.map(p => p.id === currentProduct.id ? productPayload : p);
       onSaveProducts(updated);
-      if (settings.googleSheetWebhookUrl && settings.autoSyncGoogleSheet !== false) {
-        syncProductActionToGoogleSheet(settings.googleSheetWebhookUrl, productPayload, 'update');
+      if (webhookUrl && settings.autoSyncGoogleSheet !== false) {
+        syncProductActionToGoogleSheet(webhookUrl, productPayload, 'update');
         showToast(`Đã lưu cập nhật máy "${productPayload.name}" & đồng bộ lên Google Sheet!`, 'success');
       } else {
         showToast(`Đã lưu cập nhật cây máy "${productPayload.name}" thành công!`, 'success');
@@ -253,8 +255,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         id: 'prod-' + Date.now()
       };
       onSaveProducts([newProd, ...products]);
-      if (settings.googleSheetWebhookUrl && settings.autoSyncGoogleSheet !== false) {
-        syncProductActionToGoogleSheet(settings.googleSheetWebhookUrl, newProd, 'add');
+      if (webhookUrl && settings.autoSyncGoogleSheet !== false) {
+        syncProductActionToGoogleSheet(webhookUrl, newProd, 'add');
         showToast(`Đã thêm mới máy "${newProd.name}" & đồng bộ lên Google Sheet!`, 'success');
       } else {
         showToast(`Đã thêm mới cây máy "${newProd.name}" vào kho thành công!`, 'success');
@@ -273,8 +275,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const deletedName = deletedProd.name;
     const updated = products.filter(p => p.id !== deletedProd.id);
     onSaveProducts(updated);
-    if (settings.googleSheetWebhookUrl && settings.autoSyncGoogleSheet !== false) {
-      syncProductActionToGoogleSheet(settings.googleSheetWebhookUrl, deletedProd, 'delete');
+    const webhookUrl = tempSettings.googleSheetWebhookUrl || settings.googleSheetWebhookUrl;
+    if (webhookUrl && settings.autoSyncGoogleSheet !== false) {
+      syncProductActionToGoogleSheet(webhookUrl, deletedProd, 'delete');
       showToast(`Đã xóa cây máy "${deletedName}" khỏi kho & cập nhật trên Google Sheet!`, 'info');
     } else {
       showToast(`Đã xóa cây máy "${deletedName}" khỏi kho hàng!`, 'info');
@@ -1375,6 +1378,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </div>
 
                     <div className="flex items-center gap-2 flex-wrap">
+                      {/* Quick Sync from Google Sheet */}
+                      <button
+                        type="button"
+                        onClick={handleSyncFromSheet}
+                        disabled={isSyncingSheet}
+                        className="px-3.5 py-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-emerald-400 border border-emerald-900/60 hover:border-emerald-700 font-bold text-xs flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                        title="Tải lại toàn bộ máy từ Google Sheet ngay lập tức"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isSyncingSheet ? 'animate-spin' : ''}`} />
+                        {isSyncingSheet ? 'Đang đồng bộ...' : 'Đồng Bộ Sheet'}
+                      </button>
+
                       {/* Direct CSV Export */}
                       <button
                         type="button"

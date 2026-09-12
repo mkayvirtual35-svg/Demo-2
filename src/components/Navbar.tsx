@@ -8,7 +8,8 @@ import {
   Home, 
   Menu, 
   X,
-  Camera
+  Camera,
+  Lock
 } from 'lucide-react';
 import { StoreSettings } from '../types';
 import { Logo } from './Logo';
@@ -21,6 +22,7 @@ interface NavbarProps {
   onScrollToWarranty: () => void;
   onScrollToStoreInfo: () => void;
   onOpenConsultation: () => void;
+  onOpenAdmin?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -30,6 +32,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onNavigateProducts,
   onScrollToWarranty,
   onOpenConsultation,
+  onOpenAdmin,
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -112,7 +115,17 @@ export const Navbar: React.FC<NavbarProps> = ({
         </nav>
 
         {/* Right CTA Actions */}
-        <div className="hidden sm:flex items-center gap-3">
+        <div className="hidden sm:flex items-center gap-2">
+          {onOpenAdmin && (
+            <button
+              onClick={onOpenAdmin}
+              className="p-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-neutral-400 hover:text-white border border-neutral-800 transition-colors cursor-pointer"
+              title="Quản Trị Admin"
+            >
+              <Lock className="w-3.5 h-3.5 text-emerald-400" />
+            </button>
+          )}
+
           <button
             onClick={onOpenConsultation}
             className="px-4 py-2 rounded-xl bg-white hover:bg-neutral-200 text-black text-xs font-bold transition-all shadow-md active:scale-95 flex items-center gap-1.5 cursor-pointer"
@@ -182,6 +195,19 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             Báo Giá & Giữ Máy Nhanh
           </button>
+
+          {onOpenAdmin && (
+            <button
+              onClick={() => {
+                onOpenAdmin();
+                setIsMobileMenuOpen(false);
+              }}
+              className="w-full py-2.5 px-4 rounded-xl text-left text-xs font-bold text-neutral-400 hover:text-white bg-neutral-900/60 border border-neutral-800/80 flex items-center gap-2.5 pt-2 mt-2"
+            >
+              <Lock className="w-4 h-4 text-emerald-400" />
+              Quản Trị Admin (Nhập máy & Đồng bộ)
+            </button>
+          )}
         </div>
       )}
     </header>

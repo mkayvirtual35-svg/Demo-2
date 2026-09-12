@@ -75,7 +75,12 @@ export function getStoredSettings(): StoreSettings {
       return DEFAULT_STORE_SETTINGS;
     }
     const parsed = JSON.parse(raw);
-    return { ...DEFAULT_STORE_SETTINGS, ...parsed };
+    return {
+      ...DEFAULT_STORE_SETTINGS,
+      ...parsed,
+      googleSheetWebhookUrl: parsed.googleSheetWebhookUrl || DEFAULT_STORE_SETTINGS.googleSheetWebhookUrl,
+      googleSheetProductUrl: parsed.googleSheetProductUrl || DEFAULT_STORE_SETTINGS.googleSheetProductUrl
+    };
   } catch (e) {
     console.error('Failed to load settings from storage:', e);
     return DEFAULT_STORE_SETTINGS;

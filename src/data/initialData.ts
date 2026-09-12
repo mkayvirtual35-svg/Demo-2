@@ -9,8 +9,8 @@ export const DEFAULT_STORE_SETTINGS: StoreSettings = {
   zaloLink: 'https://zalo.me/0388859959',
   facebookLink: 'https://facebook.com/taonew.official',
   googleMapsLink: 'https://maps.google.com/?q=DB4+Suncasa+Vinh+Tan+TP+Ho+Chi+Minh',
-  googleSheetWebhookUrl: '',
-  googleSheetProductUrl: '',
+  googleSheetWebhookUrl: 'https://script.google.com/macros/s/AKfycbxGnhQmtUaC76UoumcrkLgRpM82WEawtlsDV4E9cLaMqpto_ZgFKwnsSBT5mms7sVVn/exec',
+  googleSheetProductUrl: 'https://docs.google.com/spreadsheets/d/1ziSWRR3-yXzehmhHbeKL9SHfa1bCMFZ2yGiA0sZYA2M/edit?usp=sharing',
   autoSyncGoogleSheet: true,
   adminPin: '8888',
   storeImages: [
