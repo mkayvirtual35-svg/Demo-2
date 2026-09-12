@@ -18,7 +18,12 @@ import {
   addLead, 
   getStoredSettings, 
   saveStoredSettings,
-  resetToDefaults
+  resetToDefaults,
+  fetchServerData,
+  saveProductsToServer,
+  saveSettingsToServer,
+  addLeadToServer,
+  resetServerDefaults
 } from './services/storage';
 import { sendLeadToGoogleSheet, fetchProductsFromGoogleSheet } from './services/googleSheet';
 import { Navbar } from './components/Navbar';
@@ -38,8 +43,15 @@ export default function App() {
   // Main view state: 'home' (Trang chủ thông tin) or 'products' (Cửa sổ kho máy)
   const [currentView, setCurrentView] = useState<'home' | 'products'>('home');
 
-  // State management
-  const [products, setProducts] = useState<Product[]>(() => getStoredProducts());
+  // State management - Tự động loại bỏ sản phẩm ma rác (giá 0đ hoặc iPhone ảo)
+  const [products, setProducts] = useState<Product[]>(() => {
+    const list = getStoredProducts();
+    const cleanList = list.filter(p => (Number(p.price) || 0) > 0 && !(p.name.trim().toLowerCase() === 'iphone' && Number(p.price) < 1000000));
+    if (cleanList.length !== list.length) {
+      saveStoredProducts(cleanList);
+    }
+    return cleanList;
+  });
   const [leads, setLeads] = useState<LeadOrder[]>(() => getStoredLeads());
   const [settings, setSettings] = useState<StoreSettings>(() => getStoredSettings());
 
@@ -59,37 +71,66 @@ export default function App() {
   const [quickOrderColor, setQuickOrderColor] = useState<string>('Mặc định');
   const [isAdminOpen, setIsAdminOpen] = useState(false);
 
-  // Initialize and auto-sync from Google Sheet if configured
+  // 1. Tự động đồng bộ với máy chủ trung tâm (đảm bảo PC & Điện thoại luôn 100% giống nhau)
+  useEffect(() => {
+    let isMounted = true;
+    const syncFromServer = async () => {
+      try {
+        const res = await fetchServerData();
+        if (isMounted && res.success) {
+          if (res.products && res.products.length > 0) {
+            setProducts(res.products);
+          }
+          if (res.settings) {
+            setSettings(res.settings);
+          }
+          if (res.leads) {
+            setLeads(res.leads);
+          }
+        }
+      } catch (e) {
+        console.warn('Lỗi đọc dữ liệu máy chủ:', e);
+      }
+    };
+
+    syncFromServer();
+
+    // Khi người dùng mở lại trình duyệt hoặc chuyển sang tab trên điện thoại, tự động cập nhật
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        syncFromServer();
+      }
+    };
+    window.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', syncFromServer);
+
+    return () => {
+      isMounted = false;
+      window.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', syncFromServer);
+    };
+  }, []);
+
+  // 2. Tự động đồng bộ thêm từ Google Sheet nếu người dùng có bật cấu hình
   useEffect(() => {
     const syncUrl = settings.googleSheetProductUrl || settings.googleSheetWebhookUrl;
     if (!syncUrl || settings.autoSyncGoogleSheet === false) return;
 
-    const performSync = () => {
+    const performSheetSync = () => {
       fetchProductsFromGoogleSheet(syncUrl).then((res) => {
         if (res.success && res.products && res.products.length > 0) {
-          setProducts(res.products);
-          saveStoredProducts(res.products);
+          const clean = res.products.filter(p => (Number(p.price) || 0) > 0 && !(p.name.trim().toLowerCase() === 'iphone' && Number(p.price) < 1000000));
+          if (clean.length > 0) {
+            setProducts(clean);
+            saveProductsToServer(clean);
+          }
         }
       }).catch((err) => {
-        console.warn('Auto-sync from Google Sheet failed, using local data:', err);
+        console.warn('Sheet sync fallback to server:', err);
       });
     };
 
-    performSync();
-
-    // Tự động làm mới khi người dùng mở lại tab hoặc quay lại màn hình trên điện thoại
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        performSync();
-      }
-    };
-    window.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('focus', performSync);
-
-    return () => {
-      window.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', performSync);
-    };
+    performSheetSync();
   }, [settings.googleSheetProductUrl, settings.googleSheetWebhookUrl, settings.autoSyncGoogleSheet]);
 
   // Filtered Products Memo
@@ -179,7 +220,7 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Handle Lead / Order submission
+  // Handle Lead / Order submission (Lưu vào máy chủ + gửi Webhook nếu có)
   const handleSubmitOrder = async (data: {
     customerName: string;
     phoneNumber: string;
@@ -190,7 +231,7 @@ export default function App() {
     orderType: 'in_stock' | 'order' | 'consultation';
     note?: string;
   }) => {
-    const newLead = addLead(data);
+    const newLead = await addLeadToServer(data);
     setLeads(getStoredLeads());
 
     if (settings.googleSheetWebhookUrl) {
@@ -212,11 +253,11 @@ export default function App() {
     setIsQuickOrderOpen(true);
   };
 
-  // Reset to Defaults
-  const handleResetDefaults = () => {
-    const { products: defaultProducts, settings: defaultSettings } = resetToDefaults();
-    setProducts(defaultProducts);
-    setSettings(defaultSettings);
+  // Reset to Defaults (Khôi phục toàn diện máy chủ và máy khách)
+  const handleResetDefaults = async () => {
+    const res = await resetServerDefaults();
+    setProducts(res.products);
+    setSettings(res.settings);
   };
 
   return (
@@ -599,7 +640,7 @@ export default function App() {
           settings={settings}
           onSaveProducts={(updated) => {
             setProducts(updated);
-            saveStoredProducts(updated);
+            saveProductsToServer(updated);
           }}
           onSaveLeads={(updated) => {
             setLeads(updated);
@@ -607,7 +648,7 @@ export default function App() {
           }}
           onSaveSettings={(updated) => {
             setSettings(updated);
-            saveStoredSettings(updated);
+            saveSettingsToServer(updated);
           }}
           onResetDefaults={handleResetDefaults}
         />

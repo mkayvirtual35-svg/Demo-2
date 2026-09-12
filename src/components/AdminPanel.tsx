@@ -42,7 +42,8 @@ import {
   MapPin,
   Navigation,
   Share2,
-  Heart
+  Heart,
+  Sparkles
 } from 'lucide-react';
 import { Product, LeadOrder, StoreSettings, SeriesCategory, ProductAvailability, StoreGalleryImage, CustomerReviewItem } from '../types';
 import { formatVND, exportFullDatabaseBackup, importFullDatabaseBackup } from '../services/storage';
@@ -56,7 +57,8 @@ import {
   parseProductsFromCSVText,
   downloadSampleProductSheetCSV,
   syncProductActionToGoogleSheet,
-  syncAllProductsToGoogleSheet
+  syncAllProductsToGoogleSheet,
+  cleanupDummyProductsFromGoogleSheet
 } from '../services/googleSheet';
 import { ImageUploadInput } from './ImageUploadInput';
 import { Logo } from './Logo';
@@ -515,6 +517,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     } else {
       showToast(result.message || 'Lỗi gửi dữ liệu lên Google Sheet', 'error');
     }
+  };
+
+  // Dọn dẹp sạch toàn bộ các dòng máy ảo, máy ma 0đ
+  const handlePurgeGhostProducts = async () => {
+    const cleanProducts = products.filter(
+      p => (Number(p.price) || 0) > 0 && !(p.name.trim().toLowerCase() === 'iphone' && Number(p.price) < 1000000)
+    );
+    const removedCount = products.length - cleanProducts.length;
+    onSaveProducts(cleanProducts);
+
+    const webhookUrl = tempSettings.googleSheetWebhookUrl || settings.googleSheetWebhookUrl;
+    if (webhookUrl) {
+      await cleanupDummyProductsFromGoogleSheet(webhookUrl);
+    }
+    showToast(
+      removedCount > 0 
+        ? `Đã dọn dẹp sạch ${removedCount} sản phẩm ma (0đ)! Danh sách kho máy đã chuẩn xác.` 
+        : 'Kho máy hiện tại đã hoàn toàn sạch sẽ, không có sản phẩm ảo!',
+      'success'
+    );
   };
 
   // Direct CSV File Upload from Computer
@@ -1415,6 +1437,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         Nhập CSV
                       </button>
 
+                      {/* Clean Ghost Products Button */}
+                      <button
+                        type="button"
+                        onClick={handlePurgeGhostProducts}
+                        className="px-3.5 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:border-amber-500/50 font-bold text-xs flex items-center gap-1.5 transition-colors"
+                        title="Quét sạch mọi sản phẩm ma giá 0đ hoặc dòng rác không tồn tại"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                        Dọn Rác (0đ)
+                      </button>
+
                       {/* Add Product Button */}
                       <button
                         onClick={handleAddNewProductClick}
@@ -1425,6 +1458,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       </button>
                     </div>
                   </div>
+
+                  {/* Warning banner if ghost products detected */}
+                  {products.some(p => (Number(p.price) || 0) <= 0 || (p.name.trim().toLowerCase() === 'iphone' && Number(p.price) < 1000000)) && (
+                    <div className="p-3.5 rounded-2xl bg-amber-950/60 border border-amber-500/40 flex items-center justify-between gap-3 text-xs text-amber-200">
+                      <div className="flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                        <span>Phát hiện dữ liệu sản phẩm ảo (giá 0đ) từ nguồn cũ. Bấm để lọc sạch ngay lập tức.</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handlePurgeGhostProducts}
+                        className="px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-black font-extrabold text-xs shrink-0 transition-colors"
+                      >
+                        Quét Sạch Ngay
+                      </button>
+                    </div>
+                  )}
 
                   {/* Products Grid / Table */}
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">

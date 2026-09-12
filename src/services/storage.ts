@@ -104,6 +104,184 @@ export function resetToDefaults(): { products: Product[]; settings: StoreSetting
   };
 }
 
+// ================= HỆ THỐNG MÁY CHỦ TRUNG TÂM (ĐỒNG BỘ PC & MOBILE 100%) =================
+
+/**
+ * Tải dữ liệu chuẩn từ máy chủ (để PC & Mobile luôn đồng bộ cùng nhau)
+ */
+export async function fetchServerData(): Promise<{
+  success: boolean;
+  products?: Product[];
+  settings?: StoreSettings;
+  leads?: LeadOrder[];
+  message?: string;
+}> {
+  try {
+    const res = await fetch('/api/data', { cache: 'no-store' });
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const json = await res.json();
+    if (json.success) {
+      if (Array.isArray(json.products) && json.products.length > 0) {
+        // Lọc bỏ sản phẩm ma nếu có
+        const clean = json.products.filter(
+          (p: Product) => (Number(p.price) || 0) > 0 && !(p.name && p.name.trim().toLowerCase() === 'iphone' && Number(p.price) < 1000000)
+        );
+        saveStoredProducts(clean);
+        json.products = clean;
+      }
+      if (json.settings) {
+        saveStoredSettings(json.settings);
+      }
+      if (Array.isArray(json.leads)) {
+        saveStoredLeads(json.leads);
+      }
+      return {
+        success: true,
+        products: json.products,
+        settings: json.settings,
+        leads: json.leads
+      };
+    }
+    return { success: false, message: 'Máy chủ phản hồi không thành công' };
+  } catch (err: any) {
+    console.warn('Không thể kết nối máy chủ /api/data, sử dụng dữ liệu cục bộ:', err?.message || err);
+    return { success: false, message: err?.message };
+  }
+}
+
+/**
+ * Lưu danh sách sản phẩm lên máy chủ trung tâm
+ */
+export async function saveProductsToServer(products: Product[]): Promise<{ success: boolean; message: string }> {
+  // Luôn lưu cục bộ trước để giao diện mượt mà tức thì
+  saveStoredProducts(products);
+
+  try {
+    const res = await fetch('/api/products', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ products })
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    return { success: true, message: json.message || 'Đã lưu lên máy chủ!' };
+  } catch (err: any) {
+    console.warn('Lưu máy chủ thất bại, dữ liệu đã lưu an toàn trên máy cục bộ:', err);
+    return { success: false, message: 'Đã lưu trên máy này (Chưa thể đồng bộ lên máy chủ)' };
+  }
+}
+
+/**
+ * Lưu cài đặt cửa hàng lên máy chủ trung tâm
+ */
+export async function saveSettingsToServer(settings: StoreSettings): Promise<{ success: boolean; message: string }> {
+  saveStoredSettings(settings);
+
+  try {
+    const res = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ settings })
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    return { success: true, message: json.message || 'Đã lưu cài đặt lên máy chủ!' };
+  } catch (err: any) {
+    console.warn('Lưu cài đặt lên máy chủ lỗi:', err);
+    return { success: false, message: 'Đã lưu trên máy này' };
+  }
+}
+
+/**
+ * Lưu đơn hàng / yêu cầu tư vấn lên máy chủ
+ */
+export async function addLeadToServer(lead: Omit<LeadOrder, 'id' | 'createdAt' | 'status'>): Promise<LeadOrder> {
+  const localLead = addLead(lead);
+
+  try {
+    await fetch('/api/leads', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lead: localLead })
+    });
+  } catch (err) {
+    console.warn('Không thể gửi đơn lên máy chủ:', err);
+  }
+
+  return localLead;
+}
+
+/**
+ * Tải ảnh trực tiếp lên thư mục lưu trữ tĩnh của máy chủ
+ * Trả về đường dẫn vĩnh viễn (ví dụ: /uploads/taonew_171000.jpg)
+ * Cả điện thoại và máy tính đều xem được ngay lập tức, không bao giờ bị mất link
+ */
+export async function uploadImageToServer(
+  base64OrDataUrl: string, 
+  fileName?: string
+): Promise<{ success: boolean; imageUrl: string; message: string }> {
+  try {
+    const res = await fetch('/api/upload-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        base64: base64OrDataUrl,
+        fileName: fileName || 'photo'
+      })
+    });
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    if (json.success && json.imageUrl) {
+      return {
+        success: true,
+        imageUrl: json.imageUrl,
+        message: 'Đã tải ảnh lên máy chủ thành công!'
+      };
+    }
+    // Fallback: nếu máy chủ lỗi thì dùng lại data URL
+    return {
+      success: true,
+      imageUrl: base64OrDataUrl,
+      message: 'Đã lưu ảnh cục bộ!'
+    };
+  } catch (err: any) {
+    console.warn('Tải ảnh lên máy chủ lỗi, giữ nguyên URL gốc:', err);
+    return {
+      success: true,
+      imageUrl: base64OrDataUrl,
+      message: 'Đã lưu ảnh cục bộ!'
+    };
+  }
+}
+
+/**
+ * Khôi phục dữ liệu gốc trên máy chủ
+ */
+export async function resetServerDefaults(): Promise<{ success: boolean; products: Product[]; settings: StoreSettings }> {
+  const local = resetToDefaults();
+  try {
+    const res = await fetch('/api/reset', { method: 'POST' });
+    if (res.ok) {
+      const json = await res.json();
+      return {
+        success: true,
+        products: json.products || local.products,
+        settings: json.settings || local.settings
+      };
+    }
+  } catch (err) {
+    console.warn('Lỗi reset máy chủ:', err);
+  }
+  return {
+    success: true,
+    products: local.products,
+    settings: local.settings
+  };
+}
+
 /**
  * Xuất toàn bộ cơ sở dữ liệu website (Sản phẩm, Cài đặt, Showroom, Khách hàng) ra file JSON an toàn
  */

@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { UploadCloud, Link as LinkIcon, X, Check, Image as ImageIcon, AlertCircle, CloudCheck, Loader2 } from 'lucide-react';
 import { convertGoogleDriveImageUrl, uploadImageToGoogleDriveViaWebhook } from '../services/googleSheet';
+import { uploadImageToServer } from '../services/storage';
 
 interface ImageUploadInputProps {
   value: string;
@@ -51,7 +52,24 @@ export const ImageUploadInput: React.FC<ImageUploadInputProps> = ({
         // Tối ưu nén ảnh qua canvas và giữ nguyên kênh Alpha trong suốt cho PNG
         const isPng = file.type === 'image/png' || file.name.toLowerCase().endsWith('.png');
         compressImageIfNeeded(result, isPng, async (optimized) => {
-          // Nếu đã cấu hình Webhook Google Apps Script, cố gắng đẩy trực tiếp lên thư mục Google Drive
+          // 1. Tải trực tiếp lên thư mục lưu trữ tĩnh của máy chủ Táo New (Đồng bộ PC & Mobile 100%)
+          try {
+            const serverRes = await uploadImageToServer(
+              optimized,
+              file.name || `taonew_${Date.now()}.${isPng ? 'png' : 'jpg'}`
+            );
+            if (serverRes.success && serverRes.imageUrl) {
+              onChange(serverRes.imageUrl);
+              setUrlInput(serverRes.imageUrl);
+              setUploadedToDrive(true);
+              setIsProcessing(false);
+              return;
+            }
+          } catch (serverErr) {
+            console.warn('Lỗi tải ảnh lên máy chủ, thử nguồn dự phòng:', serverErr);
+          }
+
+          // 2. Dự phòng thêm nếu có cấu hình Webhook Google Apps Script Drive
           if (webhookUrl && webhookUrl.trim().startsWith('http')) {
             try {
               const driveUploadRes = await uploadImageToGoogleDriveViaWebhook(
@@ -65,15 +83,13 @@ export const ImageUploadInput: React.FC<ImageUploadInputProps> = ({
                 setUploadedToDrive(true);
                 setIsProcessing(false);
                 return;
-              } else if (driveUploadRes.message) {
-                console.info('Drive response:', driveUploadRes.message);
               }
             } catch (uploadErr) {
-              console.warn('Upload to Drive failed, fallback to local optimized image:', uploadErr);
+              console.warn('Upload to Drive fallback error:', uploadErr);
             }
           }
 
-          // Fallback lưu trực tiếp ảnh đã tối ưu (giữ trọn vẹn trong suốt)
+          // 3. Fallback lưu trực tiếp ảnh đã tối ưu
           onChange(optimized);
           setUrlInput(optimized);
           setIsProcessing(false);

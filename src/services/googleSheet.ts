@@ -158,7 +158,18 @@ export function parseProductsFromCSVText(csvText: string): {
 
       // Price parse
       const rawPrice = (row[colPrice] || '').toString().replace(/[^0-9]/g, '');
-      const price = rawPrice ? parseInt(rawPrice, 10) : 10000000;
+      const price = rawPrice ? parseInt(rawPrice, 10) : 0;
+
+      // LOẠI BỎ TRIỆT ĐỂ CÁC SẢN PHẨM "MA" / DÒNG DỮ LIỆU RỖNG HOẶC RÁC
+      if (!price || price <= 0) {
+        continue; // Bỏ qua bất kỳ dòng nào không có giá bán hoặc giá = 0đ
+      }
+      if (rawName.toLowerCase() === 'ten may' || rawName.toLowerCase() === 'tên máy') {
+        continue; // Bỏ qua dòng tiêu đề lặp lại
+      }
+      if (rawName.trim().toLowerCase() === 'iphone' && price < 1000000) {
+        continue; // Bỏ qua dòng mẫu mặc định bị ghi nhầm
+      }
 
       const rawOrigPrice = (row[colOrigPrice] || '').toString().replace(/[^0-9]/g, '');
       const originalPrice = rawOrigPrice ? parseInt(rawOrigPrice, 10) : price + 2000000;
@@ -257,26 +268,30 @@ export async function fetchProductsFromGoogleSheet(sheetUrl: string): Promise<{
       }
       const data = await response.json();
       if (Array.isArray(data)) {
-        const mappedProducts = data.map((item: any, idx: number) => ({
-          ...item,
-          image: convertGoogleDriveImageUrl(item.image || ''),
-          gallery: Array.isArray(item.gallery) ? item.gallery.map(convertGoogleDriveImageUrl) : undefined
-        }));
+        const mappedProducts = data
+          .filter((item: any) => (Number(item.price) || 0) > 0 && !(String(item.name || '').trim().toLowerCase() === 'iphone' && Number(item.price) < 1000000))
+          .map((item: any, idx: number) => ({
+            ...item,
+            image: convertGoogleDriveImageUrl(item.image || ''),
+            gallery: Array.isArray(item.gallery) ? item.gallery.map(convertGoogleDriveImageUrl) : undefined
+          }));
         return {
           success: true,
           products: mappedProducts,
-          message: `Đã nạp thành công ${mappedProducts.length} sản phẩm trực tiếp từ Google Sheet!`
+          message: `Đã nạp thành công ${mappedProducts.length} sản phẩm thực tế từ Google Sheet!`
         };
       } else if (data.products && Array.isArray(data.products)) {
-        const mappedProducts = data.products.map((item: any) => ({
-          ...item,
-          image: convertGoogleDriveImageUrl(item.image || ''),
-          gallery: Array.isArray(item.gallery) ? item.gallery.map(convertGoogleDriveImageUrl) : undefined
-        }));
+        const mappedProducts = data.products
+          .filter((item: any) => (Number(item.price) || 0) > 0 && !(String(item.name || '').trim().toLowerCase() === 'iphone' && Number(item.price) < 1000000))
+          .map((item: any) => ({
+            ...item,
+            image: convertGoogleDriveImageUrl(item.image || ''),
+            gallery: Array.isArray(item.gallery) ? item.gallery.map(convertGoogleDriveImageUrl) : undefined
+          }));
         return {
           success: true,
           products: mappedProducts,
-          message: `Đã nạp thành công ${mappedProducts.length} sản phẩm trực tiếp từ Google Sheet!`
+          message: `Đã nạp thành công ${mappedProducts.length} sản phẩm thực tế từ Google Sheet!`
         };
       }
     }
@@ -325,21 +340,34 @@ export async function syncProductActionToGoogleSheet(
   }
 
   try {
-    const payload = {
-      action: action === 'add' ? 'addProduct' : (action === 'update' ? 'update_product' : 'delete_product'),
-      name: product.name,
-      series: product.series,
-      price: product.price,
-      originalPrice: product.originalPrice,
-      condition: product.condition,
-      batteryHealth: product.batteryHealth,
-      colors: product.colors,
-      storageOptions: product.storageOptions,
-      image: product.image,
-      isAvailable: product.availability ? !product.availability.includes('order') : true,
-      product,
-      timestamp: new Date().toISOString()
-    };
+    const payload = action === 'delete'
+      ? {
+          action: 'delete_product',
+          name: product.name,
+          imei: product.imei || '',
+          id: product.id,
+          product: {
+            id: product.id,
+            name: product.name,
+            imei: product.imei || ''
+          },
+          timestamp: new Date().toISOString()
+        }
+      : {
+          action: action === 'add' ? 'addProduct' : 'update_product',
+          name: product.name,
+          series: product.series,
+          price: product.price,
+          originalPrice: product.originalPrice,
+          condition: product.condition,
+          batteryHealth: product.batteryHealth,
+          colors: product.colors,
+          storageOptions: product.storageOptions,
+          image: product.image,
+          isAvailable: product.availability ? !product.availability.includes('order') : true,
+          product,
+          timestamp: new Date().toISOString()
+        };
 
     await fetch(webhookUrl.trim(), {
       method: 'POST',
@@ -682,245 +710,170 @@ export async function uploadImageToGoogleDriveViaWebhook(
   }
 }
 
+/**
+ * Gửi yêu cầu dọn dẹp tất cả các dòng rác 0đ trên Google Sheet
+ */
+export async function cleanupDummyProductsFromGoogleSheet(
+  webhookUrl: string
+): Promise<{ success: boolean; message: string }> {
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    return { success: false, message: 'Chưa cấu hình URL Webhook' };
+  }
+  try {
+    const payload = {
+      action: 'cleanup_dummy',
+      timestamp: new Date().toISOString()
+    };
+    await fetch(webhookUrl.trim(), {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+    return { success: true, message: 'Đã gửi lệnh dọn dẹp dòng rác đến Google Sheet thành công!' };
+  } catch (err: any) {
+    return { success: false, message: 'Lỗi gửi yêu cầu dọn dẹp: ' + (err?.message || err) };
+  }
+}
+
 export const SAMPLE_GOOGLE_APPS_SCRIPT_CODE = `// =========================================================================
-// TÁO NEW STORE - GOOGLE APPS SCRIPT ĐỒNG BỘ 2 CHIỀU & LƯU ẢNH DRIVE (V4.1)
-// Quản lý: Thư mục ảnh Drive (TAO_NEW_HINH_ANH_MAY), Kho Máy (4 Phân Loại) & Đơn Khách
+// TÁO NEW STORE - GOOGLE APPS SCRIPT ĐỒNG BỘ 2 CHIỀU & LƯU ẢNH DRIVE (V5.0)
+// Quản lý: Lưu ảnh Google Drive + Thêm máy thật + XÓA MÁY CHUẨN + CHỐNG TẠO DÒNG MA 0Đ
 // =========================================================================
 
-var GOOGLE_DRIVE_FOLDER_NAME = "TAO_NEW_HINH_ANH_MAY"; // Thư mục lưu ảnh máy trên Drive
-var SHEET_PRODUCTS = "Kho_San_Pham";                  // Tab lưu kho sản phẩm
-var SHEET_LEADS = "Don_Hang_Web";                     // Tab lưu đơn đặt hàng
+// Dán Folder ID thư mục Anh_TaoNew_Store trên Google Drive của bạn vào đây:
+var DRIVE_FOLDER_ID = "DIEN_FOLDER_ID_CUA_BAN_VAO_DAY";
+var DRIVE_FOLDER_NAME = "Anh_TaoNew_Store";
 
-// Tự động tìm hoặc tạo thư mục trên Google Drive
-function getOrCreateDriveFolder() {
-  var folders = DriveApp.getFoldersByName(GOOGLE_DRIVE_FOLDER_NAME);
-  if (folders.hasNext()) {
-    return folders.next();
+function getTargetDriveFolder() {
+  if (typeof DRIVE_FOLDER_ID !== 'undefined' && DRIVE_FOLDER_ID && DRIVE_FOLDER_ID !== "DIEN_FOLDER_ID_CUA_BAN_VAO_DAY") {
+    try {
+      return DriveApp.getFolderById(DRIVE_FOLDER_ID);
+    } catch (e) {}
   }
-  var newFolder = DriveApp.createFolder(GOOGLE_DRIVE_FOLDER_NAME);
-  newFolder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-  return newFolder;
+  var folders = DriveApp.getFoldersByName(DRIVE_FOLDER_NAME);
+  if (folders.hasNext()) return folders.next();
+  var f = DriveApp.createFolder(DRIVE_FOLDER_NAME);
+  f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  return f;
 }
 
-// Khởi tạo tab Kho Sản Phẩm nếu chưa có
-function getOrCreateProductsSheet(ss) {
-  var sheet = ss.getSheetByName(SHEET_PRODUCTS);
-  if (!sheet) {
-    sheet = ss.insertSheet(SHEET_PRODUCTS);
-    sheet.appendRow([
-      "Mã ID",
-      "Tên Máy",
-      "Dòng Máy",
-      "Phân Loại (in_stock_99 / in_stock_clearance / order_99 / order_new_seal)",
-      "Mã IMEI / Serial",
-      "Giá Bán Thực Tế (VNĐ)",
-      "Giá Gốc (VNĐ)",
-      "Dung Lượng",
-      "Hình Thức Máy",
-      "Màu Sắc",
-      "Link Ảnh (Google Drive / Web)",
-      "Mô Tả Chi Tiết"
-    ]);
-    var header = sheet.getRange(1, 1, 1, 12);
-    header.setBackground("#0F172A");
-    header.setFontColor("#FFFFFF");
-    header.setFontWeight("bold");
-    sheet.setFrozenRows(1);
-  }
-  return sheet;
-}
-
-// Khởi tạo tab Đơn Hàng nếu chưa có
-function getOrCreateLeadsSheet(ss) {
-  var sheet = ss.getSheetByName(SHEET_LEADS);
-  if (!sheet) {
-    sheet = ss.insertSheet(SHEET_LEADS);
-    sheet.appendRow([
-      "Thời Gian Đăng Ký",
-      "Họ và Tên Khách Hàng",
-      "Số Điện Thoại",
-      "Dòng Máy Quan Tâm",
-      "Mã IMEI / Cây Máy",
-      "Dung Lượng Chọn",
-      "Màu Sắc",
-      "Loại Đơn Hàng",
-      "Ghi Chú Yêu Cầu",
-      "Trạng Thái Xử Lý"
-    ]);
-    var header = sheet.getRange(1, 1, 1, 10);
-    header.setBackground("#0F172A");
-    header.setFontColor("#FFFFFF");
-    header.setFontWeight("bold");
-    sheet.setFrozenRows(1);
-  }
-  return sheet;
-}
-
-// Xử lý gửi dữ liệu từ Web lên Google Drive & Google Sheet (POST)
 function doPost(e) {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var contents = e.postData.contents;
-    var payload = JSON.parse(contents);
-    var action = payload.action || "lead";
+    var raw = (e && e.postData && e.postData.contents) ? e.postData.contents : "{}";
+    var data = JSON.parse(raw);
+    var action = data.action || "";
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
 
-    // 1. TẢI ẢNH LÊN THƯ MỤC GOOGLE DRIVE
-    if (action === "upload_image_to_drive") {
-      var folder = getOrCreateDriveFolder();
-      var rawBase64 = payload.imageBase64 || "";
+    // 1. TẢI ẢNH TRỰC TIẾP LÊN THƯ MỤC GOOGLE DRIVE
+    if ((action === "uploadImage" || action === "upload_image_to_drive") && (data.base64 || data.imageBase64)) {
+      var folder = getTargetDriveFolder();
+      var rawBase64 = data.base64 || data.imageBase64 || "";
       var base64Data = rawBase64.indexOf(",") !== -1 ? rawBase64.split(",")[1] : rawBase64;
-      var decodedBlob = Utilities.newBlob(
-        Utilities.base64Decode(base64Data),
-        payload.mimeType || "image/jpeg",
-        payload.fileName || ("may_" + Date.now() + ".jpg")
-      );
-      
-      var file = folder.createFile(decodedBlob);
+      var contentType = data.mimeType || "image/jpeg";
+      var blob = Utilities.newBlob(Utilities.base64Decode(base64Data), contentType, data.fileName || ("taonew_" + Date.now() + ".jpg"));
+      var file = folder.createFile(blob);
       file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
       var fileId = file.getId();
       var directImageUrl = "https://lh3.googleusercontent.com/d/" + fileId;
-
       return ContentService.createTextOutput(JSON.stringify({
         status: "success",
-        fileId: fileId,
-        driveUrl: file.getUrl(),
-        imageUrl: directImageUrl
+        imageUrl: directImageUrl,
+        directUrl: directImageUrl,
+        fileId: fileId
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    // 2. ĐỒNG BỘ TOÀN BỘ KHO MÁY (SYNC ALL)
-    if (action === "sync_all_products") {
-      var prodSheet = getOrCreateProductsSheet(ss);
-      var lastRow = prodSheet.getLastRow();
-      if (lastRow > 1) {
-        prodSheet.deleteRows(2, lastRow - 1);
+    // 2. XÓA CÂY MÁY KHỎI GOOGLE SHEET (XÓA CHÍNH XÁC, KHÔNG GHI THÊM DÒNG MỚI)
+    if (action === "delete_product" || action === "deleteProduct") {
+      var targetName = String(data.name || (data.product && data.product.name) || "").trim().toLowerCase();
+      var targetImei = String(data.imei || (data.product && data.product.imei) || "").trim().toLowerCase();
+      var rows = sheet.getDataRange().getValues();
+      var deletedCount = 0;
+      for (var i = rows.length - 1; i >= 1; i--) {
+        var rowName = String(rows[i][0] || "").trim().toLowerCase();
+        var rowPrice = Number(rows[i][2]) || 0;
+        var rowImei = String(rows[i][4] || rows[i][10] || "").trim().toLowerCase();
+        if ((targetName && rowName === targetName) || 
+            (targetImei && rowImei && rowImei.indexOf(targetImei) !== -1) ||
+            (rowPrice <= 0 && rowName === "iphone")) {
+          sheet.deleteRow(i + 1);
+          deletedCount++;
+        }
       }
-      var products = payload.products || [];
-      for (var i = 0; i < products.length; i++) {
-        var p = products[i];
-        var avail = p.availability || "in_stock_99";
-        var isOrder = (avail === "order" || avail === "order_99" || avail === "order_new_seal");
-        var storage = isOrder ? (p.storageOptions ? p.storageOptions.join(", ") : "128GB") : (p.exactStorage || "128GB");
-        var color = isOrder ? (p.colors ? p.colors.map(function(c){return c.name;}).join(", ") : "Titan") : (p.exactColor ? p.exactColor.name : "Titan");
-        prodSheet.appendRow([
-          p.id || ("prod-" + (i+1)),
-          p.name || "",
-          p.series || "16 Series",
-          avail,
-          p.imei || "",
-          p.price || 0,
-          p.originalPrice || p.price || 0,
-          storage,
-          p.condition || "Like New 99%",
-          color,
-          p.image || "",
-          p.shortDesc || ""
+      return ContentService.createTextOutput(JSON.stringify({ status: "success", deletedCount: deletedCount })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 3. DỌN DẸP SẠCH SẼ TẤT CẢ DÒNG RÁC / MÁY ẢO 0Đ TRÊN SHEET
+    if (action === "cleanup_dummy") {
+      var allRows = sheet.getDataRange().getValues();
+      var purged = 0;
+      for (var k = allRows.length - 1; k >= 1; k--) {
+        var n = String(allRows[k][0] || "").trim().toLowerCase();
+        var p = Number(allRows[k][2]) || 0;
+        if (p <= 0 || (n === "iphone" && p < 1000000)) {
+          sheet.deleteRow(k + 1);
+          purged++;
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({ status: "success", purgedCount: purged })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 4. THÊM CÂY MÁY MỚI (CHỈ THÊM KHI CÓ TÊN VÀ GIÁ > 0, CHẶN DÒNG RỖNG)
+    if (action === "addProduct" || action === "add_product") {
+      var prodName = String(data.name || (data.product && data.product.name) || "").trim();
+      var prodPrice = Number(data.price || (data.product && data.product.price)) || 0;
+      if (!prodName || prodPrice <= 0 || prodName.toLowerCase() === "iphone") {
+        return ContentService.createTextOutput(JSON.stringify({ status: "ignored", message: "Bỏ qua máy rỗng hoặc giá 0đ" })).setMimeType(ContentService.MimeType.JSON);
+      }
+      sheet.appendRow([
+        prodName,
+        data.series || (data.product && data.product.series) || "16 Series",
+        prodPrice,
+        Number(data.originalPrice || (data.product && data.product.originalPrice)) || (prodPrice + 2000000),
+        data.condition || (data.product && data.product.condition) || "Máy Like New 99% Chuẩn Zin",
+        data.batteryHealth || (data.product && data.product.batteryHealth) || "Pin 100%",
+        Array.isArray(data.colors) ? data.colors.map(function(c){ return typeof c === 'string' ? c : c.name; }).join(", ") : (data.color || "Titan Tự Nhiên"),
+        Array.isArray(data.storageOptions) ? data.storageOptions.join(", ") : (data.storage || "256GB"),
+        data.image || (data.product && data.product.image) || "",
+        (data.isAvailable === false || data.availability === 'order_99' || data.availability === 'order_new_seal') ? "Tạm hết" : "Còn hàng"
+      ]);
+      return ContentService.createTextOutput(JSON.stringify({ status: "success", message: "Đã thêm máy vào Sheet!" })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 5. ĐỒNG BỘ TOÀN BỘ DANH SÁCH MÁY (SYNC ALL)
+    if (action === "sync_all_products" && Array.isArray(data.products)) {
+      var lastRow = sheet.getLastRow();
+      if (lastRow > 1) {
+        sheet.deleteRows(2, lastRow - 1);
+      }
+      var products = data.products;
+      for (var pIdx = 0; pIdx < products.length; pIdx++) {
+        var item = products[pIdx];
+        if (!item.name || Number(item.price) <= 0) continue;
+        sheet.appendRow([
+          item.name,
+          item.series || "16 Series",
+          item.price,
+          item.originalPrice || (item.price + 2000000),
+          item.condition || "Like New 99%",
+          item.batteryHealth || "Pin 100%",
+          Array.isArray(item.colors) ? item.colors.map(function(c){return typeof c === 'string' ? c : c.name;}).join(", ") : "Titan",
+          Array.isArray(item.storageOptions) ? item.storageOptions.join(", ") : "128GB",
+          item.image || "",
+          "Còn hàng"
         ]);
       }
-      return ContentService.createTextOutput(JSON.stringify({ status: "success", message: "Đã đồng bộ toàn bộ " + products.length + " máy vào Google Sheet!" })).setMimeType(ContentService.MimeType.JSON);
+      return ContentService.createTextOutput(JSON.stringify({ status: "success" })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    // 3. THÊM CÂY MÁY MỚI (ADD PRODUCT)
-    if (action === "add_product") {
-      var prodSheet = getOrCreateProductsSheet(ss);
-      var p = payload.product;
-      var avail = p.availability || "in_stock_99";
-      var isOrder = (avail === "order" || avail === "order_99" || avail === "order_new_seal");
-      var storage = isOrder ? (p.storageOptions ? p.storageOptions.join(", ") : "128GB") : (p.exactStorage || "128GB");
-      var color = isOrder ? (p.colors ? p.colors.map(function(c){return c.name;}).join(", ") : "Titan") : (p.exactColor ? p.exactColor.name : "Titan");
-      prodSheet.appendRow([
-        p.id || ("prod-" + Date.now()),
-        p.name || "",
-        p.series || "16 Series",
-        avail,
-        p.imei || "",
-        p.price || 0,
-        p.originalPrice || p.price || 0,
-        storage,
-        p.condition || "Like New 99%",
-        color,
-        p.image || "",
-        p.shortDesc || ""
-      ]);
-      return ContentService.createTextOutput(JSON.stringify({ status: "success", message: "Đã thêm cây máy vào Google Sheet!" })).setMimeType(ContentService.MimeType.JSON);
-    }
+    // MẶC ĐỊNH: KHÔNG GHI GÌ CẢ (CHỐNG PHÁT SINH DÒNG MA KHI BẤM NHẦM HOẶC TEST)
+    return ContentService.createTextOutput(JSON.stringify({ status: "ignored", message: "Thao tác không yêu cầu ghi dữ liệu" })).setMimeType(ContentService.MimeType.JSON);
 
-    // 4. CẬP NHẬT CÂY MÁY (UPDATE PRODUCT)
-    if (action === "update_product") {
-      var prodSheet = getOrCreateProductsSheet(ss);
-      var p = payload.product;
-      var data = prodSheet.getDataRange().getValues();
-      var foundRow = -1;
-      for (var r = 1; r < data.length; r++) {
-        if (data[r][0] == p.id || (p.imei && data[r][4] == p.imei)) {
-          foundRow = r + 1;
-          break;
-        }
-      }
-      var avail = p.availability || "in_stock_99";
-      var isOrder = (avail === "order" || avail === "order_99" || avail === "order_new_seal");
-      var storage = isOrder ? (p.storageOptions ? p.storageOptions.join(", ") : "128GB") : (p.exactStorage || "128GB");
-      var color = isOrder ? (p.colors ? p.colors.map(function(c){return c.name;}).join(", ") : "Titan") : (p.exactColor ? p.exactColor.name : "Titan");
-      var newRow = [
-        p.id || "",
-        p.name || "",
-        p.series || "16 Series",
-        avail,
-        p.imei || "",
-        p.price || 0,
-        p.originalPrice || p.price || 0,
-        storage,
-        p.condition || "Like New 99%",
-        color,
-        p.image || "",
-        p.shortDesc || ""
-      ];
-      if (foundRow > 0) {
-        prodSheet.getRange(foundRow, 1, 1, 12).setValues([newRow]);
-      } else {
-        prodSheet.appendRow(newRow);
-      }
-      return ContentService.createTextOutput(JSON.stringify({ status: "success", message: "Đã cập nhật máy trên Google Sheet!" })).setMimeType(ContentService.MimeType.JSON);
-    }
-
-    // 5. XÓA CÂY MÁY (DELETE PRODUCT)
-    if (action === "delete_product") {
-      var prodSheet = getOrCreateProductsSheet(ss);
-      var p = payload.product;
-      var data = prodSheet.getDataRange().getValues();
-      for (var r = 1; r < data.length; r++) {
-        if (data[r][0] == p.id || (p.imei && data[r][4] == p.imei) || data[r][1] == p.name) {
-          prodSheet.deleteRow(r + 1);
-          break;
-        }
-      }
-      return ContentService.createTextOutput(JSON.stringify({ status: "success", message: "Đã xóa máy khỏi Google Sheet!" })).setMimeType(ContentService.MimeType.JSON);
-    }
-
-    // 6. ĐƠN ĐẶT MÁY / TƯ VẤN TỪ KHÁCH HÀNG (LEAD)
-    var leadsSheet = getOrCreateLeadsSheet(ss);
-    var timeFormatted = Utilities.formatDate(new Date(), "GMT+7", "dd/MM/yyyy HH:mm:ss");
-    var orderTypeDesc = payload.orderType === "in_stock" || payload.orderType === "in_stock_99" || payload.orderType === "in_stock_clearance"
-      ? "Giữ Máy Sẵn Quầy" 
-      : (payload.orderType === "order_99" ? "Order 99% Lướt" : (payload.orderType === "order_new_seal" || payload.orderType === "order" ? "Order New Seal" : "Tư Vấn"));
-    
-    leadsSheet.appendRow([
-      timeFormatted,
-      payload.customerName || "Khách Hàng",
-      "'" + (payload.phoneNumber || ""),
-      payload.interestedProduct || "iPhone",
-      payload.imei || "Theo máy",
-      payload.storageSelected || "128GB",
-      payload.colorSelected || "Mặc định",
-      orderTypeDesc,
-      payload.note || "Đăng ký từ Web Táo New",
-      "Chờ Liên Hệ"
-    ]);
-
-    return ContentService.createTextOutput(JSON.stringify({ status: "success", message: "Đã lưu đơn hàng vào Sheet thành công!" })).setMimeType(ContentService.MimeType.JSON);
-
-  } catch (error) {
-    return ContentService.createTextOutput(JSON.stringify({ status: "error", message: error.toString() })).setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ status: "error", error: err.toString() })).setMimeType(ContentService.MimeType.JSON);
   }
 }
 
