@@ -631,10 +631,16 @@ export async function uploadImageToGoogleDriveViaWebhook(
   }
 
   try {
+    // Hỗ trợ cả 2 tên action và tên trường tương thích 100% với Google Apps Script
+    const isPng = (fileName || '').toLowerCase().endsWith('.png') || base64Data.includes('image/png');
+    const mimeType = isPng ? 'image/png' : 'image/jpeg';
     const payload = {
-      action: 'upload_image_to_drive',
+      action: 'uploadImage',
+      uploadAction: 'upload_image_to_drive',
+      base64: base64Data,
       imageBase64: base64Data,
-      fileName: fileName || `may_${Date.now()}.jpg`,
+      mimeType,
+      fileName: fileName || `taonew_${Date.now()}.${isPng ? 'png' : 'jpg'}`,
       timestamp: new Date().toISOString()
     };
 

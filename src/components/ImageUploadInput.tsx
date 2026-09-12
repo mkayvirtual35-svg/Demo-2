@@ -57,7 +57,7 @@ export const ImageUploadInput: React.FC<ImageUploadInputProps> = ({
               const driveUploadRes = await uploadImageToGoogleDriveViaWebhook(
                 webhookUrl,
                 optimized,
-                file.name || `img_${Date.now()}.${isPng ? 'png' : 'jpg'}`
+                file.name || `taonew_${Date.now()}.${isPng ? 'png' : 'jpg'}`
               );
               if (driveUploadRes.success && driveUploadRes.directUrl) {
                 onChange(driveUploadRes.directUrl);
@@ -65,6 +65,8 @@ export const ImageUploadInput: React.FC<ImageUploadInputProps> = ({
                 setUploadedToDrive(true);
                 setIsProcessing(false);
                 return;
+              } else if (driveUploadRes.message) {
+                console.info('Drive response:', driveUploadRes.message);
               }
             } catch (uploadErr) {
               console.warn('Upload to Drive failed, fallback to local optimized image:', uploadErr);
@@ -245,6 +247,12 @@ export const ImageUploadInput: React.FC<ImageUploadInputProps> = ({
       {/* Preview if exists */}
       {value ? (
         <div className="relative rounded-xl border border-neutral-700 bg-neutral-900/90 overflow-hidden group flex items-center justify-center p-2">
+          {isGoogleDriveImage && (
+            <span className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded-md bg-sky-500/90 text-white text-[10px] font-bold shadow flex items-center gap-1 backdrop-blur-sm">
+              <CloudCheck className="w-3 h-3" />
+              Đã lưu Google Drive
+            </span>
+          )}
           <img
             src={value}
             alt="Preview"
